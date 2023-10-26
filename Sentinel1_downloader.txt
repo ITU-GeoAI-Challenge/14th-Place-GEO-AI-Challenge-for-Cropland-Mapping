@@ -1,0 +1,66 @@
+var s2_collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+var landsat_collection = ee.ImageCollection("LANDSAT/LC08/C02/T1")
+
+var train_points = ee.FeatureCollection('users/jwst28/train_test_new')
+var test_points = ee.FeatureCollection('users/jwst28/Test')
+var country = ee.FeatureCollection("FAO/GAUL/2015/level1").filter(ee.Filter.eq('ADM1_NAME', "Nangarhar")) 
+
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000);
+}
+
+
+          
+var Date_Start = ee.Date('2019-01-01');
+var Date_End = ee.Date('2023-05-01');
+var Date_window = ee.Number(30);
+
+// Create list of dates for time series
+var n_months = Date_End.difference(Date_Start,'month').round();
+var dates = ee.List.sequence(0,n_months,1);
+var make_datelist = function(n) {
+  return Date_Start.advance(n,'month');
+};
+dates = dates.map(make_datelist);
+
+print(dates)
+
+for(var i = 0 ; i<53 ;i++){
+  var start = ee.Date(dates.get(i));
+  var end = ee.Date(dates.get(i)).advance(1,'month');
+  var date_range = ee.DateRange(start,end);
+  print(date_range)
+  var toi = s2_collection.filterBounds(train_points)
+          .filterDate(date_range)
+          .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',30))
+          .map(maskS2clouds);
+          
+  var sampled_points = toi.median().sampleRegions({
+  collection: train_points,
+  scale: 10,
+  geometries: true,
+  tileScale :10
+  });
+  print(sampled_points)
+  var date_n = start.format('YYYY-MM').getInfo();
+
+  Export.table.toDrive({
+    description: date_n,
+    collection: sampled_points,
+    folder: 'zindi00',
+    fileFormat: 'CSV'
+    });
+}
+
+
+

@@ -1,0 +1,65 @@
+var s2_collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+var landsat_collection = ee.ImageCollection("LANDSAT/LC08/C02/T1")
+
+var train_points = ee.FeatureCollection('users/jwst28/train_test')
+var test_points = ee.FeatureCollection('users/jwst28/Test')
+var country = ee.FeatureCollection("FAO/GAUL/2015/level1").filter(ee.Filter.eq('ADM1_NAME', "Nangarhar")) 
+
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000);
+}
+
+
+var toi = s2_collection.filterBounds(train_points)
+          .filterDate('2019-07-01', '20220-06-30')
+          .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',20))
+          .map(maskS2clouds);
+          
+var toi_landsat = landsat_collection.filterBounds(train_points)
+          .filterDate('2019-07-01', '20220-06-30')
+         
+         
+var crops = ee.FeatureCollection(train_points.filter(ee.Filter.eq('Target', 1)));
+var test = ee.FeatureCollection(train_points.filter(ee.Filter.eq('Target', 3)));
+var non_crop = ee.FeatureCollection(train_points.filter(ee.Filter.eq('Target', 0)));
+
+var visualization = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B4', 'B3', 'B2'],
+};
+var trueColor432Vis = {
+  min: 0.0,
+  max: 30000.0,
+};
+
+
+Map.addLayer(toi,visualization,"afghan")
+Map.addLayer(toi_landsat,trueColor432Vis,"afghan_land")
+Map.addLayer(crops,{color: '#3fd655'},"crop")
+Map.addLayer(non_crop,{color: '#d62f51'},"non_crop")
+Map.addLayer(test,{color: '#4cc5d6'},"test")
+Map.addLayer(country)
+
+Export.table.toDrive({
+  collection: crop_isu,
+  description: 'crop_isu',
+  folder: 'zindi00',
+  fileFormat: 'CSV'
+});
+Export.table.toDrive({
+  collection: noncrop_isu,
+  description: 'noncrop_isu',
+  folder: 'zindi00',
+  fileFormat: 'CSV'
+});
